@@ -6,107 +6,80 @@ StellarForge is a collection of production-ready, well-tested Soroban contracts 
 
 ---
 
-## Contracts
+## 📊 Contract Comparison
+Developers evaluating StellarForge can use this table to quickly identify the right primitive for their specific use case.
 
-| Contract | Description |
-|---|---|
-| [`forge-vesting`](./contracts/forge-vesting) | Token vesting with cliff + linear release |
-| [`forge-stream`](./contracts/forge-stream) | Real-time per-second token streaming |
-| [`forge-multisig`](./contracts/forge-multisig) | N-of-M treasury with timelock |
-| [`forge-governor`](./contracts/forge-governor) | Token-weighted on-chain governance |
-| [`forge-oracle`](./contracts/forge-oracle) | Price feed with staleness protection |
-
----
-
-## forge-vesting
-
-Deploy tokens on a vesting schedule with an optional cliff period.
-
-```
-initialize(token, beneficiary, admin, total_amount, cliff_seconds, duration_seconds)
-claim()           → withdraws all currently unlocked tokens
-cancel()          → admin cancels, returns unvested tokens
-get_status()      → VestingStatus { total, claimed, vested, claimable, cliff_reached, fully_vested }
-```
-
-**Example:** 1M tokens, 6-month cliff, 2-year linear vesting.
+| Contract | Use Case | Admin Required | Events Emitted | Timelock |
+| :--- | :--- | :--- | :--- | :--- |
+| [`forge-governor`](#forge-governor) | Governance | No (Auth-based) | None | Yes (Voting/Execution delay) |
+| [`forge-multisig`](#forge-multisig) | Multisig Treasury | Yes (Owners) | None | Yes (Post-approval delay) |
+| [`forge-oracle`](#forge-oracle) | Price Feed | Yes (Admin) | `price_updated` | No |
+| [`forge-stream`](#forge-stream) | Real-time Payments | No (Stream-specific) | `stream_created`, `withdrawn`, `stream_cancelled` | No |
+| [`forge-vesting`](#forge-vesting) | Token Vesting | Yes (Admin) | `vesting_initialized`, `claimed`, `vesting_cancelled` | Yes (Cliff period) |
 
 ---
 
-## forge-stream
+## 📜 Contract Details
 
-Pay-per-second token streams. Recipients withdraw accrued tokens at any time.
+### forge-vesting
+Deploy tokens on a vesting schedule with an optional cliff period. Perfect for team allocations or advisor tokens.
 
-```
-create_stream(sender, token, recipient, rate_per_second, duration_seconds) → stream_id
-withdraw(stream_id)        → recipient pulls accrued tokens
-cancel_stream(stream_id)   → sender cancels, splits remaining tokens fairly
-get_stream_status(id)      → StreamStatus { streamed, withdrawn, withdrawable, remaining, is_active }
-```
+* **Key Function:** `initialize(token, beneficiary, admin, total_amount, cliff_seconds, duration_seconds)`
+* **Action:** `claim()` withdraws all currently unlocked tokens.
+* **Security:** `cancel()` allows the admin to return unvested tokens if a contributor leaves.
 
-**Example:** Stream 100 USDC/day to a contractor for 30 days.
+### forge-stream
+Pay-per-second token streams. Ideal for payroll, subscriptions, or real-time contractor payments.
 
----
+* **Key Function:** `create_stream(sender, token, recipient, rate_per_second, duration_seconds)`
+* **Action:** `withdraw(stream_id)` allows the recipient to pull accrued tokens at any time.
 
-## forge-multisig
+### forge-multisig
+An N-of-M treasury requiring multiple owner approvals before funds move. Essential for DAO treasuries.
 
-N-of-M treasury requiring multiple owner approvals before funds move.
+* **Key Function:** `propose(proposer, to, token, amount)`
+* **Action:** `execute(executor, proposal_id)` transfers funds only after the configured timelock.
 
-```
-initialize(owners, threshold, timelock_delay)
-propose(proposer, to, token, amount)  → proposal_id
-approve(owner, proposal_id)
-reject(owner, proposal_id)
-execute(executor, proposal_id)        → transfers funds after timelock
-```
+### forge-governor
+Token-weighted on-chain governance with configurable quorum and voting periods.
 
-**Example:** 3-of-5 multisig with 24-hour timelock for a DAO treasury.
+* **Key Function:** `propose(proposer, title, description)`
+* **Action:** Supports token-weighted voting and automated execution after a passed proposal.
 
----
+### forge-oracle
+Admin-controlled price feeds with staleness protection for DeFi protocols.
 
-## forge-governor
-
-Token-weighted on-chain governance with configurable quorum and timelock.
-
-```
-initialize(GovernorConfig { vote_token, voting_period, quorum, timelock_delay })
-propose(proposer, title, description)  → proposal_id
-vote(voter, proposal_id, support, weight)
-finalize(proposal_id)                  → sets state to Passed or Failed
-execute(executor, proposal_id)         → marks proposal executed after timelock
-```
-
-**Example:** Protocol parameter changes voted on by token holders.
+* **Key Function:** `submit_price(base, quote, price)`
+* **Security:** `get_price(base, quote)` reverts if data is older than the staleness threshold.
 
 ---
 
-## forge-oracle
+## 🛠️ Prerequisites & Setup
 
-Admin-controlled price feeds with staleness protection.
+Soroban is Stellar’s smart contract platform, built for performance and developer-friendly Rust tooling. Learn more in the [official docs](https://developers.stellar.org/docs/smart-contracts/overview).
 
-```
-initialize(admin, staleness_threshold)
-submit_price(base, quote, price)       → admin submits price (7 decimal places)
-get_price(base, quote)                 → PriceData, reverts if stale
-get_price_unsafe(base, quote)          → PriceData, no staleness check
-set_staleness_threshold(new_threshold)
-transfer_admin(new_admin)
-```
+To build and test these contracts, you will need the following tools:
 
-**Example:** XLM/USDC price feed updated every 60 seconds.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Rust + `wasm32-unknown-unknown` target
-- Stellar CLI
+#### Rust Requirements
+- **Rust Edition:** 2021
+- **Target:** `wasm32v1-none` (v1 instruction set recommended for Soroban)
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install stellar-cli
+rustup target add wasm32v1-none
+```
+
+#### CLI Installation
+The `stellar-cli` is essential for building, deploying, and interacting with Soroban contracts. **v25.2.0 or higher** is recommended.
+
+```bash
+cargo install --locked stellar-cli
+```
+
+#### Funding Testnet Accounts
+Before deploying, you'll need a funded testnet account. You can generate and fund one easily:
+
+```bash
+stellar keys generate <identity_name> --network testnet --fund
 ```
 
 ### Build all contracts
