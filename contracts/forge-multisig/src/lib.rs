@@ -441,6 +441,33 @@ impl MultisigContract {
             .unwrap_or(0)
     }
 
+    /// Check if an address is one of the multisig owners.
+    ///
+    /// Read-only; returns `false` if the contract has not been initialized.
+    /// This is a lightweight alternative to [`get_owners`](Self::get_owners) when
+    /// UIs or integrators only need to verify ownership status.
+    ///
+    /// # Parameters
+    /// - `address` — The address to check for ownership.
+    ///
+    /// # Returns
+    /// `true` if `address` is in the owner list, `false` otherwise.
+    ///
+    /// # Example
+    /// ```text
+    /// if client.is_owner(&some_address) {
+    ///     // enable multisig actions
+    /// }
+    /// ```
+    pub fn is_owner(env: Env, address: Address) -> bool {
+        let owners: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Owners)
+            .unwrap_or(Vec::new(&env));
+        owners.contains(&address)
+    }
+
     // ── Private ───────────────────────────────────────────────────────────────
 
     fn require_owner(env: &Env, address: &Address) -> Result<(), MultisigError> {
@@ -493,7 +520,7 @@ mod tests {
     fn test_initialize_with_duplicate_owners() {
         let env = Env::default();
         env.mock_all_auths();
-        env.register(MultisigContract, ());
+        env.register_contract(None, MultisigContract);
         let o1 = Address::generate(&env);
         let owners = vec![&env, o1.clone(), o1.clone(), o1.clone()]; // 3 duplicates
         MultisigContract::initialize(env.clone(), owners, 1, 0).unwrap();
@@ -635,5 +662,22 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = 7200);
         let result = client.try_execute(&o3, &pid);
         assert_eq!(result, Err(Ok(MultisigError::InsufficientApprovals)));
+    }
+
+    #[test]
+    fn test_is_owner_returns_true_for_owner() {
+        let env = Env::default();
+        let (client, o1, _, _) = setup_2of3(&env);
+
+        assert!(client.is_owner(&o1));
+    }
+
+    #[test]
+    fn test_is_owner_returns_false_for_non_owner() {
+        let env = Env::default();
+        let (client, _, _, _) = setup_2of3(&env);
+        let non_owner = Address::generate(&env);
+
+        assert!(!client.is_owner(&non_owner));
     }
 }
