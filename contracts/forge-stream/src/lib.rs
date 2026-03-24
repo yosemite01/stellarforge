@@ -531,6 +531,31 @@ impl ForgeStream {
         Self::sync_elapsed_streams(&env)
     }
 
+    /// Return the total number of streams ever created.
+    ///
+    /// This is a monotonically increasing counter — it includes active, finished,
+    /// and cancelled streams. Useful for UIs to paginate stream history and gauge
+    /// protocol activity. Stream IDs are zero-indexed, so valid IDs range from
+    /// `0` to `get_stream_count() - 1`.
+    ///
+    /// # Returns
+    /// `u64` — total streams created since contract deployment.
+    ///
+    /// # Example
+    /// ```text
+    /// let count = client.get_stream_count();
+    /// for id in 0..count {
+    ///     let stream = client.get_stream(&id)?;
+    ///     // process stream...
+    /// }
+    /// ```
+    pub fn get_stream_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::NextId)
+            .unwrap_or(0)
+    }
+
     /// Return the number of tokens the recipient can withdraw right now.
     ///
     /// Lightweight alternative to [`get_stream_status`](Self::get_stream_status)
@@ -1355,11 +1380,18 @@ mod tests {
     }
 
     #[test]
+    fn test_get_stream_count_starts_at_zero() {
     fn test_get_streams_by_sender_empty() {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register_contract(None, ForgeStream);
         let client = ForgeStreamClient::new(&env, &contract_id);
+
+        assert_eq!(client.get_stream_count(), 0);
+    }
+
+    #[test]
+    fn test_get_stream_count_increments_on_create() {
         let sender = Address::generate(&env);
 
         let streams = client.get_streams_by_sender(&sender);
@@ -1388,6 +1420,23 @@ mod tests {
         let recipient = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(token_admin).address();
+        soroban_sdk::token::StellarAssetClient::new(&env, &token_id).mint(&sender, &1_000_000);
+
+        assert_eq!(client.get_stream_count(), 0);
+
+        client.create_stream(&sender, &token_id, &recipient, &100, &1000);
+        assert_eq!(client.get_stream_count(), 1);
+
+        client.create_stream(&sender, &token_id, &recipient, &100, &1000);
+        assert_eq!(client.get_stream_count(), 2);
+
+        client.create_stream(&sender, &token_id, &recipient, &100, &1000);
+        assert_eq!(client.get_stream_count(), 3);
+    }
+
+    #[test]
+    fn test_get_stream_count_includes_cancelled_streams() {
         let token_id = env
             .register_stellar_asset_contract_v2(token_admin)
             .address();
@@ -1431,6 +1480,17 @@ mod tests {
         let contract_id = env.register_contract(None, ForgeStream);
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(token_admin).address();
+        soroban_sdk::token::StellarAssetClient::new(&env, &token_id).mint(&sender, &1_000_000);
+
+        let stream_id = client.create_stream(&sender, &token_id, &recipient, &100, &1000);
+        client.cancel_stream(&stream_id);
+
+        // count should still be 1 even after cancellation
+        assert_eq!(client.get_stream_count(), 1);
         let recipient1 = Address::generate(&env);
         let recipient2 = Address::generate(&env);
 
