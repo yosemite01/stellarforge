@@ -1,3 +1,51 @@
+# Rust build artifacts
 target/
+**/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Soroban/Stellar specific
+.soroban/
+**/.soroban/
+*.wasm
+*.optimized.wasm
+contracts/**/*.wasm
+
+# Test artifacts
 **/test_snapshots/
-/target
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+.classpath
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# OS generated files
+Thumbs.db
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Documentation build
+book/
+target/doc/
+
+# Profiling and debugging
+flamegraph.svg
+perf.data
+perf.data.old
