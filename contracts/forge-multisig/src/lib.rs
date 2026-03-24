@@ -80,10 +80,13 @@ impl MultisigContract {
     /// called exactly once before any other function. Does not require auth —
     /// the deployer is responsible for calling this immediately after deployment.
     ///
+    /// Duplicate owner addresses are automatically deduplicated to ensure each
+    /// owner is unique and counts only once toward the threshold.
+    ///
     /// # Parameters
     /// - `owners` — List of addresses that are permitted to propose, vote, and execute.
     /// - `threshold` — Minimum number of approvals required to pass a proposal (N in N-of-M).
-    ///   Must be ≥ 1 and ≤ `owners.len()`.
+    ///   Must be ≥ 1 and ≤ the number of unique owners after deduplication.
     /// - `timelock_delay` — Seconds that must elapse after a proposal reaches the approval
     ///   threshold before it can be executed. Use `0` for no delay.
     ///
@@ -92,7 +95,7 @@ impl MultisigContract {
     ///
     /// # Errors
     /// - [`MultisigError::AlreadyInitialized`] — Contract has already been initialized.
-    /// - [`MultisigError::InvalidThreshold`] — `threshold` is 0 or exceeds `owners.len()`.
+    /// - [`MultisigError::InvalidThreshold`] — `threshold` is 0 or exceeds the number of unique owners.
     ///
     /// # Example
     /// ```text
@@ -108,10 +111,19 @@ impl MultisigContract {
         if env.storage().instance().has(&DataKey::Owners) {
             return Err(MultisigError::AlreadyInitialized);
         }
-        if threshold == 0 || threshold > owners.len() {
+
+        // Deduplicate owners to ensure uniqueness
+        let mut unique_owners = Vec::new(&env);
+        for owner in owners.iter() {
+            if !unique_owners.contains(&owner) {
+                unique_owners.push_back(owner);
+            }
+        }
+
+        if threshold == 0 || threshold > unique_owners.len() {
             return Err(MultisigError::InvalidThreshold);
         }
-        env.storage().instance().set(&DataKey::Owners, &owners);
+        env.storage().instance().set(&DataKey::Owners, &unique_owners);
         env.storage()
             .instance()
             .set(&DataKey::Threshold, &threshold);
@@ -475,6 +487,19 @@ mod tests {
         let o1 = Address::generate(&env);
         let result = client.try_initialize(&vec![&env, o1], &5, &0);
         assert_eq!(result, Err(Ok(MultisigError::InvalidThreshold)));
+    }
+
+    #[test]
+    fn test_initialize_with_duplicate_owners() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.register(MultisigContract, ());
+        let o1 = Address::generate(&env);
+        let owners = vec![&env, o1.clone(), o1.clone(), o1.clone()]; // 3 duplicates
+        MultisigContract::initialize(env.clone(), owners, 1, 0).unwrap();
+        let stored_owners = MultisigContract::get_owners(env);
+        assert_eq!(stored_owners.len(), 1);
+        assert!(stored_owners.contains(&o1));
     }
 
     #[test]

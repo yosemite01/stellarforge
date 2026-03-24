@@ -399,6 +399,77 @@ mod tests {
         assert!(found, "Event data does not match expected values");
     }
 
+    // ── Staleness boundary tests ───────────────────────────────────────────────
+
+    /// get_price() succeeds when now == updated_at + threshold (exactly at boundary).
+    #[test]
+    fn test_get_price_at_exact_staleness_boundary_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let threshold = 3600u64;
+        let submit_time = 1000u64;
+
+        env.ledger().with_mut(|l| l.timestamp = submit_time);
+        let (_, client) = setup(&env); // staleness = 3600
+
+        let base = Symbol::new(&env, "XLM");
+        let quote = Symbol::new(&env, "USDC");
+        client.submit_price(&base, &quote, &10_000_000);
+
+        // Advance to exactly updated_at + threshold
+        env.ledger().with_mut(|l| l.timestamp = submit_time + threshold);
+        let result = client.try_get_price(&base, &quote);
+        assert!(result.is_ok(), "expected Ok at exact boundary, got {:?}", result);
+    }
+
+    /// get_price() reverts when now == updated_at + threshold + 1 (one second past).
+    #[test]
+    fn test_get_price_one_second_past_staleness_boundary_reverts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let threshold = 3600u64;
+        let submit_time = 1000u64;
+
+        env.ledger().with_mut(|l| l.timestamp = submit_time);
+        let (_, client) = setup(&env);
+
+        let base = Symbol::new(&env, "XLM");
+        let quote = Symbol::new(&env, "USDC");
+        client.submit_price(&base, &quote, &10_000_000);
+
+        // One second past the threshold
+        env.ledger().with_mut(|l| l.timestamp = submit_time + threshold + 1);
+        let result = client.try_get_price(&base, &quote);
+        assert_eq!(result, Err(Ok(OracleError::PriceStale)));
+    }
+
+    /// get_price_unsafe() succeeds at the boundary and one second past it.
+    #[test]
+    fn test_get_price_unsafe_succeeds_regardless_of_staleness() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let threshold = 3600u64;
+        let submit_time = 1000u64;
+
+        env.ledger().with_mut(|l| l.timestamp = submit_time);
+        let (_, client) = setup(&env);
+
+        let base = Symbol::new(&env, "XLM");
+        let quote = Symbol::new(&env, "USDC");
+        let price = 10_000_000i128;
+        client.submit_price(&base, &quote, &price);
+
+        // At exact boundary
+        env.ledger().with_mut(|l| l.timestamp = submit_time + threshold);
+        let data = client.get_price_unsafe(&base, &quote).unwrap();
+        assert_eq!(data.price, price);
+
+        // One second past boundary
+        env.ledger().with_mut(|l| l.timestamp = submit_time + threshold + 1);
+        let data = client.get_price_unsafe(&base, &quote).unwrap();
+        assert_eq!(data.price, price);
+    }
+
     #[test]
     fn test_multiple_price_submissions_emit_events() {
         use soroban_sdk::testutils::Events;
