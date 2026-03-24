@@ -10,7 +10,9 @@
  //! - Sender can cancel and reclaim unstreamed tokens
  //! - Multiple streams can run in parallel (keyed by stream_id)
 
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, token, Address, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
+};
 
 #[contracttype]
 pub enum DataKey {
@@ -406,9 +408,14 @@ impl ForgeStream {
 #[cfg(test)]
 mod tests {
     extern crate std;
+    use crate::ForgeStream;
+
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::Env;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::{Client as TokenClient, StellarAssetClient},
+    };
 
     #[test]
     fn test_create_stream_success() {
@@ -418,9 +425,16 @@ mod tests {
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let token = Address::generate(&env);
 
-        let result = client.try_create_stream(&sender, &token, &recipient, &100, &1000);
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let result = client.try_create_stream(&sender, &token.address, &recipient, &100, &1000);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().unwrap(), 0u64);
     }
@@ -457,9 +471,16 @@ mod tests {
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let token = Address::generate(&env);
 
-        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
         // No time has passed — nothing to withdraw
         let result = client.try_withdraw(&stream_id);
         assert_eq!(result, Err(Ok(StreamError::NothingToWithdraw)));
@@ -473,12 +494,19 @@ mod tests {
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let token = Address::generate(&env);
 
-        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
         env.ledger().with_mut(|l| l.timestamp += 100);
 
-        let status = client.get_stream_status(&stream_id).unwrap();
+        let status = client.get_stream_status(&stream_id);
         assert!(status.is_active);
         assert_eq!(status.streamed, 10_000); // 100 * 100s
         assert_eq!(status.withdrawable, 10_000);
@@ -492,9 +520,16 @@ mod tests {
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let token = Address::generate(&env);
 
-        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
         let result = client.try_cancel_stream(&stream_id);
         assert!(result.is_ok());
 
@@ -510,12 +545,19 @@ mod tests {
         let client = ForgeStreamClient::new(&env, &contract_id);
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let token = Address::generate(&env);
 
-        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
         env.ledger().with_mut(|l| l.timestamp += 2000);
 
-        let status = client.get_stream_status(&stream_id).unwrap();
+        let status = client.get_stream_status(&stream_id);
         assert!(status.is_finished);
         assert!(!status.is_active);
         assert_eq!(status.streamed, 100_000); // 100 * 1000s = full amount
@@ -526,6 +568,8 @@ mod tests {
     /// Rate of 1 token/sec: streamed amount must equal elapsed seconds exactly.
     #[test]
     fn test_low_rate_one_token_per_second() {
+    #[test]
+    fn test_withdraw_success() {
         let env = Env::default();
         env.mock_all_auths();
         let contract_id = env.register(ForgeStream, ());
@@ -699,6 +743,67 @@ mod tests {
         client.cancel_stream(&stream_id);
 
         assert_eq!(client.get_claimable(&stream_id).unwrap(), 0);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
+
+        env.ledger().set_timestamp(100);
+        let result = client.withdraw(&stream_id);
+        assert_eq!(result, 10_000);
+
+        let status = client.get_stream_status(&stream_id);
+        assert_eq!(status.id, 0);
+        assert!(status.is_active);
+        assert!(status.is_active);
+        assert!(!status.is_finished);
+        assert_eq!(status.remaining, 90_000);
+        assert_eq!(status.streamed, 10_000);
+        assert_eq!(status.withdrawn, 10_000);
+
+        env.ledger().set_timestamp(500);
+        let result = client.withdraw(&stream_id);
+        assert_eq!(result, 40000);
+
+        let status = client.get_stream_status(&stream_id);
+        assert_eq!(status.id, 0);
+        assert!(status.is_active);
+        assert!(status.is_active);
+        assert!(!status.is_finished);
+        assert_eq!(status.remaining, 50_000);
+        assert_eq!(status.streamed, 50_000);
+        assert_eq!(status.withdrawn, 50_000);
+
+        env.ledger().set_timestamp(700);
+        let result = client.withdraw(&stream_id);
+        assert_eq!(result, 20000);
+
+        let status = client.get_stream_status(&stream_id);
+        assert_eq!(status.id, 0);
+        assert!(status.is_active);
+        assert!(status.is_active);
+        assert!(!status.is_finished);
+        assert_eq!(status.remaining, 30_000);
+        assert_eq!(status.streamed, 70_000);
+        assert_eq!(status.withdrawn, 70_000);
+
+        env.ledger().set_timestamp(1000);
+        let result = client.withdraw(&stream_id);
+        assert_eq!(result, 30_000);
+
+        let status = client.get_stream_status(&stream_id);
+        assert_eq!(status.id, 0);
+        assert!(!status.is_active);
+        assert!(status.is_finished);
+        assert_eq!(status.remaining, 0);
+        assert_eq!(status.streamed, 100_000);
+        assert_eq!(status.withdrawn, 100_000);
     }
 }
 

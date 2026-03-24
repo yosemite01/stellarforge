@@ -553,6 +553,79 @@ mod tests {
     }
 
     #[test]
+    fn test_finalize_fails_when_quorum_not_reached() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let pid = client.propose(&proposer, &String::from_str(&env, "P"), &String::from_str(&env, "D"));
+
+        // Vote with weight below quorum (quorum = 100)
+        let voter = Address::generate(&env);
+        client.vote(&voter, &pid, &true, &50);
+
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+        let state = client.finalize(&pid);
+        assert_eq!(state, ProposalState::Failed);
+    }
+
+    #[test]
+    fn test_finalize_passes_when_quorum_met_and_majority_yes() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let pid = client.propose(&proposer, &String::from_str(&env, "P"), &String::from_str(&env, "D"));
+
+        let voter = Address::generate(&env);
+        client.vote(&voter, &pid, &true, &100);
+
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+        let state = client.finalize(&pid);
+        assert_eq!(state, ProposalState::Passed);
+    }
+
+    #[test]
+    fn test_execute_failed_proposal_reverts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let pid = client.propose(&proposer, &String::from_str(&env, "P"), &String::from_str(&env, "D"));
+
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+        client.finalize(&pid); // fails: no votes
+
+        let executor = Address::generate(&env);
+        let result = client.try_execute(&executor, &pid);
+        assert!(matches!(result, Err(Ok(GovernorError::ProposalNotPassed))));
+    }
+
+    #[test]
+    fn test_vote_after_voting_period_reverts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let pid = client.propose(&proposer, &String::from_str(&env, "P"), &String::from_str(&env, "D"));
+
+        // Advance past voting_period (3600)
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+
+        let voter = Address::generate(&env);
+        let result = client.try_vote(&voter, &pid, &true, &100);
+        assert!(matches!(result, Err(Ok(GovernorError::VotingClosed))));
+    }
+
+    #[test]
     fn test_execute_before_timelock_fails() {
         let env = Env::default();
         env.mock_all_auths();

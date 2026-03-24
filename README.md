@@ -39,6 +39,7 @@ An N-of-M treasury requiring multiple owner approvals before funds move. Essenti
 
 * **Key Function:** `propose(proposer, to, token, amount)`
 * **Action:** `execute(executor, proposal_id)` transfers funds only after the configured timelock.
+* **Duplicate Owners:** If duplicate addresses are provided during initialization, they are automatically deduplicated to ensure each owner is unique and counts only once toward the threshold.
 
 ### forge-governor
 Token-weighted on-chain governance with configurable quorum and voting periods.
@@ -82,9 +83,23 @@ Before deploying, you'll need a funded testnet account. You can generate and fun
 stellar keys generate <identity_name> --network testnet --fund
 ```
 
+### Using Make (Recommended)
+This project includes a Makefile with common development commands:
+
+| Command | Description |
+| :--- | :--- |
+| `make build` | Build all workspace crates |
+| `make test` | Run all tests |
+| `make lint` | Run clippy linter with deny warnings |
+| `make fmt` | Format code |
+| `make check` | Run fmt + lint + test in sequence |
+| `make clean` | Clean build artifacts |
+
 ### Build all contracts
 
 ```bash
+make build
+# or manually:
 cargo build --workspace
 stellar contract build
 ```
@@ -92,6 +107,8 @@ stellar contract build
 ### Run all tests
 
 ```bash
+make test
+# or manually:
 cargo test --workspace
 ```
 
