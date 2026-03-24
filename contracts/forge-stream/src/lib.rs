@@ -681,7 +681,9 @@ mod tests {
 
     fn setup_token(env: &Env, sender: &Address, total: i128) -> Address {
         let token_admin = Address::generate(env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
         StellarAssetClient::new(env, &token_id).mint(sender, &total);
         token_id
     }
