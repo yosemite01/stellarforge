@@ -91,6 +91,7 @@ pub enum VestingError {
     InvalidConfig = 7,
     SameAdmin = 8,
     SameBeneficiary = 9,
+    BeneficiaryAsAdmin = 10,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -143,6 +144,9 @@ impl ForgeVesting {
         }
         if total_amount <= 0 || duration_seconds == 0 || cliff_seconds > duration_seconds {
             return Err(VestingError::InvalidConfig);
+        }
+        if admin == beneficiary {
+            return Err(VestingError::BeneficiaryAsAdmin);
         }
 
         admin.require_auth();
@@ -324,6 +328,9 @@ impl ForgeVesting {
 
         if config.admin == new_admin {
             return Err(VestingError::SameAdmin);
+        }
+        if config.beneficiary == new_admin {
+            return Err(VestingError::BeneficiaryAsAdmin);
         }
 
         let old_admin = config.admin;
@@ -781,6 +788,24 @@ mod tests {
         client.initialize(&token, &beneficiary, &admin, &1_000_000, &100, &1000);
         let result = client.try_transfer_admin(&admin);
         assert_eq!(result, Err(Ok(VestingError::SameAdmin)));
+    }
+
+    #[test]
+    fn test_transfer_admin_to_beneficiary_fails() {
+        let (env, contract_id, token, beneficiary, admin) = setup();
+        let client = ForgeVestingClient::new(&env, &contract_id);
+        client.initialize(&token, &beneficiary, &admin, &1_000_000, &100, &1000);
+        let result = client.try_transfer_admin(&beneficiary);
+        assert_eq!(result, Err(Ok(VestingError::BeneficiaryAsAdmin)));
+    }
+
+    #[test]
+    fn test_initialize_with_admin_as_beneficiary_fails() {
+        let (env, contract_id, token, _, _) = setup();
+        let client = ForgeVestingClient::new(&env, &contract_id);
+        let same_address = Address::generate(&env);
+        let result = client.try_initialize(&token, &same_address, &same_address, &1_000_000, &100, &1000);
+        assert_eq!(result, Err(Ok(VestingError::BeneficiaryAsAdmin)));
     }
 
     #[test]
