@@ -19,6 +19,14 @@ Developers evaluating StellarForge can use this table to quickly identify the ri
 
 ---
 
+## 🏭 Real World Use Cases
+
+- `forge-vesting`: Issue employee token grants with a one-year cliff and multi-year linear vesting so early hires are rewarded for long-term commitment, while investor lockups enforce even longer vesting before secondary-market liquidity.
+- `forge-stream`: Pay contractors in real time for on-demand work with per-second streams that stop automatically at project completion, or implement subscription billing for SaaS users where tokens accrue continuously and can be withdrawn by the service provider.
+- `forge-multisig`: Manage a DAO treasury for community-approved funding requests requiring multi-owner consent, or safeguard team operational funds with 2-of-3 and 3-of-5 approval workflows to prevent single-person spending.
+- `forge-governor`: Coordinate protocol upgrades by routing proposals through a token-weighted voting process and enforcing execution delays, and tune parameters like fees or collateral ratios in a transparent governance flow.
+- `forge-oracle`: Feed DEX price data into AMM pools for accurate swap pricing and slippage control, or provide collateral valuation updates for lending markets so borrowing power adjusts to live market conditions.
+
 ## 📜 Contract Details
 
 ### forge-vesting
