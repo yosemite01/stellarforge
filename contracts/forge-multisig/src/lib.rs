@@ -840,4 +840,54 @@ mod tests {
         assert!(owners.contains(&o2));
         assert!(owners.contains(&o3));
     }
+
+    // ── Non-owner propose() rejection ─────────────────────────────────────────
+
+    #[test]
+    fn test_non_owner_propose_reverts() {
+        // A caller not in the owner list must be rejected
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, _) = setup_2of3(&env);
+        let non_owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let to = Address::generate(&env);
+
+        let result = client.try_propose(&non_owner, &to, &token, &500);
+        assert_eq!(result, Err(Ok(MultisigError::Unauthorized)));
+    }
+
+    #[test]
+    fn test_non_owner_propose_returns_unauthorized_error() {
+        // Verify the specific error variant is Unauthorized, not any other error
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, _) = setup_2of3(&env);
+        let non_owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let to = Address::generate(&env);
+
+        match client.try_propose(&non_owner, &to, &token, &500) {
+            Err(Ok(err)) => assert_eq!(err, MultisigError::Unauthorized),
+            other => panic!("expected Unauthorized, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_non_owner_propose_creates_no_proposal() {
+        // After a failed propose(), no proposal should exist and the counter stays at 0
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, _) = setup_2of3(&env);
+        let non_owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let to = Address::generate(&env);
+
+        let _ = client.try_propose(&non_owner, &to, &token, &500);
+
+        // Proposal ID 0 must not exist
+        assert!(client.get_proposal(&0).is_none());
+        // Approval count for a non-existent proposal returns 0
+        assert_eq!(client.get_approval_count(&0), 0);
+    }
 }
