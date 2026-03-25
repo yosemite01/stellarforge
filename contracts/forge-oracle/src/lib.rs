@@ -654,4 +654,136 @@ mod tests {
         assert_eq!(data_unsafe.price, new_price);
         assert_eq!(data_unsafe.updated_at, 2000);
     }
+
+    // ── Multiple price pairs tests ───────────────────────────────────────────────
+
+    /// Test submitting prices for two different pairs (XLM/USDC and BTC/USDC)
+    /// and verify each pair returns its own correct price.
+    #[test]
+    fn test_multiple_price_pairs() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let (_, client) = setup(&env);
+
+        // Define two different trading pairs
+        let xlm = Symbol::new(&env, "XLM");
+        let btc = Symbol::new(&env, "BTC");
+        let usdc = Symbol::new(&env, "USDC");
+
+        // Submit prices for both pairs
+        let xlm_price = 11_000_000i128; // 1.1 USDC per XLM
+        let btc_price = 70_000_000_000i128; // 70,000 USDC per BTC
+
+        client.submit_price(&xlm, &usdc, &xlm_price);
+        client.submit_price(&btc, &usdc, &btc_price);
+
+        // Verify each pair returns its own correct price
+        let xlm_data = client.get_price(&xlm, &usdc);
+        assert_eq!(xlm_data.price, xlm_price);
+        assert_eq!(xlm_data.updated_at, 1000);
+
+        let btc_data = client.get_price(&btc, &usdc);
+        assert_eq!(btc_data.price, btc_price);
+        assert_eq!(btc_data.updated_at, 1000);
+    }
+
+    /// Test that updating one pair does not affect the other pair.
+    #[test]
+    fn test_updating_one_pair_does_not_affect_other() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let (_, client) = setup(&env);
+
+        // Define two different trading pairs
+        let xlm = Symbol::new(&env, "XLM");
+        let btc = Symbol::new(&env, "BTC");
+        let usdc = Symbol::new(&env, "USDC");
+
+        // Submit initial prices for both pairs
+        let xlm_price_v1 = 10_000_000i128;
+        let btc_price_v1 = 60_000_000_000i128;
+
+        client.submit_price(&xlm, &usdc, &xlm_price_v1);
+        client.submit_price(&btc, &usdc, &btc_price_v1);
+
+        // Update only XLM/USDC pair
+        env.ledger().with_mut(|l| l.timestamp = 2000);
+        let xlm_price_v2 = 15_000_000i128;
+        client.submit_price(&xlm, &usdc, &xlm_price_v2);
+
+        // Verify XLM/USDC was updated
+        let xlm_data = client.get_price(&xlm, &usdc);
+        assert_eq!(xlm_data.price, xlm_price_v2);
+        assert_eq!(xlm_data.updated_at, 2000);
+
+        // Verify BTC/USDC was NOT affected
+        let btc_data = client.get_price(&btc, &usdc);
+        assert_eq!(btc_data.price, btc_price_v1, "BTC price should not have changed");
+        assert_eq!(btc_data.updated_at, 1000, "BTC timestamp should not have changed");
+    }
+
+    /// Test that three different pairs can coexist and each maintains independent state.
+    #[test]
+    fn test_three_independent_price_pairs() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let (_, client) = setup(&env);
+
+        let xlm = Symbol::new(&env, "XLM");
+        let btc = Symbol::new(&env, "BTC");
+        let eth = Symbol::new(&env, "ETH");
+        let usdc = Symbol::new(&env, "USDC");
+
+        // Submit prices for three pairs at different times
+        client.submit_price(&xlm, &usdc, &11_000_000);
+        
+        env.ledger().with_mut(|l| l.timestamp = 1500);
+        client.submit_price(&btc, &usdc, &70_000_000_000);
+        
+        env.ledger().with_mut(|l| l.timestamp = 2000);
+        client.submit_price(&eth, &usdc, &3_500_000_000);
+
+        // Verify all three pairs have correct and independent values
+        let xlm_data = client.get_price(&xlm, &usdc);
+        assert_eq!(xlm_data.price, 11_000_000);
+        assert_eq!(xlm_data.updated_at, 1000);
+
+        let btc_data = client.get_price(&btc, &usdc);
+        assert_eq!(btc_data.price, 70_000_000_000);
+        assert_eq!(btc_data.updated_at, 1500);
+
+        let eth_data = client.get_price(&eth, &usdc);
+        assert_eq!(eth_data.price, 3_500_000_000);
+        assert_eq!(eth_data.updated_at, 2000);
+    }
+
+    /// Test that pairs with same base but different quotes are independent.
+    #[test]
+    fn test_same_base_different_quote_pairs() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let (_, client) = setup(&env);
+
+        let xlm = Symbol::new(&env, "XLM");
+        let usdc = Symbol::new(&env, "USDC");
+        let usdt = Symbol::new(&env, "USDT");
+
+        // Submit prices for XLM/USDC and XLM/USDT
+        let xlm_usdc_price = 11_000_000i128;
+        let xlm_usdt_price = 10_500_000i128;
+
+        client.submit_price(&xlm, &usdc, &xlm_usdc_price);
+        client.submit_price(&xlm, &usdt, &xlm_usdt_price);
+
+        // Verify each pair is independent
+        let usdc_data = client.get_price(&xlm, &usdc);
+        assert_eq!(usdc_data.price, xlm_usdc_price);
+
+        let usdt_data = client.get_price(&xlm, &usdt);
+        assert_eq!(usdt_data.price, xlm_usdt_price);
+    }
 }
