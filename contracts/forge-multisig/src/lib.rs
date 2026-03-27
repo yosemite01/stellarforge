@@ -1087,4 +1087,64 @@ mod tests {
         // Approval count for a non-existent proposal returns 0
         assert_eq!(client.get_approval_count(&0), 0);
     }
+
+    // ── Token balance verification after execute() ────────────────────────────
+
+    /// After a proposal is approved, the timelock elapses, and execute() is called,
+    /// the recipient's token balance must increase by exactly the proposed amount,
+    /// and the multisig contract's balance must decrease by the same amount.
+    #[test]
+    fn test_execute_transfers_exact_token_amount_to_recipient() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+
+        // Step 1: Fund the multisig contract with tokens
+        const TIMELOCK: u64 = 3600;
+        const TRANSFER_AMOUNT: i128 = 250;
+        const FUNDED_AMOUNT: i128 = 1000;
+
+        let (client, [o1, o2, o3], token_id, recipient, contract_id) =
+            setup_funded(&env, TIMELOCK);
+
+        let token = soroban_sdk::token::Client::new(&env, &token_id);
+
+        // Verify initial balances
+        let initial_contract_balance = token.balance(&contract_id);
+        let initial_recipient_balance = token.balance(&recipient);
+        assert_eq!(initial_contract_balance, FUNDED_AMOUNT);
+        assert_eq!(initial_recipient_balance, 0);
+
+        // Step 2: Propose a transfer of a specific amount to the recipient
+        let pid = client.propose(&o1, &recipient, &token_id, &TRANSFER_AMOUNT);
+
+        // Step 3: Approve to reach the 2-of-3 threshold
+        client.approve(&o2, &pid);
+
+        // Step 4: Advance past the timelock and execute
+        env.ledger().with_mut(|l| l.timestamp = TIMELOCK + 1);
+        client.execute(&o3, &pid);
+
+        // Step 5: Verify recipient balance increased by exactly the proposed amount
+        let final_recipient_balance = token.balance(&recipient);
+        assert_eq!(
+            final_recipient_balance,
+            initial_recipient_balance + TRANSFER_AMOUNT,
+            "recipient balance must increase by exactly the proposed amount"
+        );
+
+        // Step 6: Verify multisig balance decreased by the same amount
+        let final_contract_balance = token.balance(&contract_id);
+        assert_eq!(
+            final_contract_balance,
+            initial_contract_balance - TRANSFER_AMOUNT,
+            "multisig balance must decrease by exactly the proposed amount"
+        );
+
+        // Sanity check: no tokens created or destroyed
+        assert_eq!(
+            final_recipient_balance + final_contract_balance,
+            FUNDED_AMOUNT
+        );
+    }
 }
