@@ -227,6 +227,11 @@ impl GovernorContract {
             .instance()
             .set(&DataKey::ActiveProposals, &active);
 
+        env.events().publish(
+            (Symbol::new(&env, "proposal_created"),),
+            (proposal_id, &proposer, proposal.vote_end),
+        );
+
         Ok(proposal_id)
     }
 
@@ -300,6 +305,11 @@ impl GovernorContract {
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
 
+        env.events().publish(
+            (Symbol::new(&env, "vote_cast"),),
+            (proposal_id, &voter, support, weight),
+        );
+
         Ok(())
     }
 
@@ -372,6 +382,11 @@ impl GovernorContract {
                 .set(&DataKey::ActiveProposals, &active);
         }
 
+        env.events().publish(
+            (Symbol::new(&env, "proposal_finalized"),),
+            (proposal_id, &state, proposal.votes_for, proposal.votes_against),
+        );
+
         Ok(state)
     }
 
@@ -440,6 +455,11 @@ impl GovernorContract {
                 .instance()
                 .set(&DataKey::ActiveProposals, &active);
         }
+
+        env.events().publish(
+            (Symbol::new(&env, "proposal_executed"),),
+            (proposal_id, &executor),
+        );
 
         Ok(())
     }
@@ -1496,5 +1516,144 @@ mod tests {
 
         let result = client.try_get_vote_tally(&99);
         assert_eq!(result, Err(Ok(GovernorError::ProposalNotFound)));
+    }
+}
+
+    /// Test that propose() emits a proposal_created event with correct payload
+    #[test]
+    fn test_propose_emits_event() {
+        use soroban_sdk::testutils::Events;
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "Desc"),
+        );
+
+        let events = env.events().all();
+        let found = events.iter().any(|(_, topics, data)| {
+            topics
+                .get(0)
+                .and_then(|t| Symbol::try_from_val(&env, &t).ok())
+                .map(|s| s == Symbol::new(&env, "proposal_created"))
+                .unwrap_or(false)
+                && <(u64, Address, u64)>::try_from_val(&env, &data)
+                    .map(|(id, prop, vote_end)| id == pid && prop == proposer && vote_end == 1000 + 3600)
+                    .unwrap_or(false)
+        });
+        assert!(found, "Expected proposal_created event not found");
+    }
+
+    /// Test that vote() emits a vote_cast event with correct payload
+    #[test]
+    fn test_vote_emits_event() {
+        use soroban_sdk::testutils::Events;
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 1000);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "Desc"),
+        );
+        client.vote(&voter, &pid, &true, &200);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(_, topics, data)| {
+            topics
+                .get(0)
+                .and_then(|t| Symbol::try_from_val(&env, &t).ok())
+                .map(|s| s == Symbol::new(&env, "vote_cast"))
+                .unwrap_or(false)
+                && <(u64, Address, bool, i128)>::try_from_val(&env, &data)
+                    .map(|(id, v, support, weight)| id == pid && v == voter && support && weight == 200)
+                    .unwrap_or(false)
+        });
+        assert!(found, "Expected vote_cast event not found");
+    }
+
+    /// Test that finalize() emits a proposal_finalized event with correct payload
+    #[test]
+    fn test_finalize_emits_event() {
+        use soroban_sdk::testutils::Events;
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "Desc"),
+        );
+        client.vote(&voter, &pid, &true, &200);
+
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+        client.finalize(&pid);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(_, topics, data)| {
+            topics
+                .get(0)
+                .and_then(|t| Symbol::try_from_val(&env, &t).ok())
+                .map(|s| s == Symbol::new(&env, "proposal_finalized"))
+                .unwrap_or(false)
+                && <(u64, ProposalState, i128, i128)>::try_from_val(&env, &data)
+                    .map(|(id, state, votes_for, votes_against)| {
+                        id == pid && state == ProposalState::Passed && votes_for == 200 && votes_against == 0
+                    })
+                    .unwrap_or(false)
+        });
+        assert!(found, "Expected proposal_finalized event not found");
+    }
+
+    /// Test that execute() emits a proposal_executed event with correct payload
+    #[test]
+    fn test_execute_emits_event() {
+        use soroban_sdk::testutils::Events;
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let client = setup(&env);
+
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let executor = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "Test"),
+            &String::from_str(&env, "Desc"),
+        );
+        client.vote(&voter, &pid, &true, &200);
+
+        env.ledger().with_mut(|l| l.timestamp = 5000);
+        client.finalize(&pid);
+
+        env.ledger().with_mut(|l| l.timestamp = 5000 + 86400 + 1);
+        client.execute(&executor, &pid);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(_, topics, data)| {
+            topics
+                .get(0)
+                .and_then(|t| Symbol::try_from_val(&env, &t).ok())
+                .map(|s| s == Symbol::new(&env, "proposal_executed"))
+                .unwrap_or(false)
+                && <(u64, Address)>::try_from_val(&env, &data)
+                    .map(|(id, exec)| id == pid && exec == executor)
+                    .unwrap_or(false)
+        });
+        assert!(found, "Expected proposal_executed event not found");
     }
 }
