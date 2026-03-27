@@ -193,7 +193,7 @@ impl GovernorContract {
         let now = env.ledger().timestamp();
         let proposal_id: u64 = env
             .storage()
-            .instance()
+            .persistent()
             .get(&DataKey::NextProposalId)
             .unwrap_or(0u64);
 
@@ -213,7 +213,7 @@ impl GovernorContract {
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
         env.storage()
-            .instance()
+            .persistent()
             .set(&DataKey::NextProposalId, &(proposal_id + 1));
 
         // Track active proposal ID for O(1) get_pending_proposals
@@ -609,7 +609,7 @@ impl GovernorContract {
     /// ```
     pub fn get_proposal_count(env: Env) -> u64 {
         env.storage()
-            .instance()
+            .persistent()
             .get(&DataKey::NextProposalId)
             .unwrap_or(0u64)
     }
@@ -1009,7 +1009,8 @@ mod tests {
         client.vote(&voter4, &pid2, &true, &39);
 
         // Finalize after the voting period and verify it fails.
-        env.ledger().with_mut(|l| l.timestamp = 6000);
+        // pid2 was created at t=5000, so vote_end = 5000 + 3600 = 8600
+        env.ledger().with_mut(|l| l.timestamp = 9000);
         let state2 = client.finalize(&pid2);
         assert_eq!(state2, ProposalState::Failed);
     }
@@ -1138,8 +1139,7 @@ mod tests {
 
         // Ensure execution succeeds after the timelock delay elapsed
         env.ledger().with_mut(|l| l.timestamp = 5000 + 86400);
-        let result = client.execute(&executor, &pid);
-        assert_eq!(result, Ok(()));
+        client.execute(&executor, &pid);
 
         let proposal = client.get_proposal(&pid);
         assert_eq!(proposal.state, ProposalState::Executed);
@@ -1482,11 +1482,16 @@ mod tests {
             ids.push_back(pid);
         }
 
-        // Finalize the first 5 (advance past voting period, vote to meet quorum)
-        env.ledger().with_mut(|l| l.timestamp = 4000);
+        // Vote on the first 5 before voting period ends (vote_end = 3600)
         for i in 0..5u32 {
             let pid = ids.get(i).unwrap();
             client.vote(&voter, &pid, &true, &200);
+        }
+
+        // Finalize the first 5 after voting period ends
+        env.ledger().with_mut(|l| l.timestamp = 4000);
+        for i in 0..5u32 {
+            let pid = ids.get(i).unwrap();
             client.finalize(&pid);
         }
 

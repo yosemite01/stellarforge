@@ -174,7 +174,7 @@ impl MultisigContract {
 
         let proposal_id: u64 = env
             .storage()
-            .instance()
+            .persistent()
             .get(&DataKey::NextProposalId)
             .unwrap_or(0u64);
 
@@ -204,8 +204,13 @@ impl MultisigContract {
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
         env.storage()
-            .instance()
+            .persistent()
             .set(&DataKey::NextProposalId, &(proposal_id + 1));
+        
+        // Extend TTL for NextProposalId to prevent expiry (1 year)
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::NextProposalId, 31536000, 31536000);
 
         env.events().publish(
             (Symbol::new(&env, "proposal_created"),),
@@ -1156,6 +1161,8 @@ mod tests {
 
         let result = client.try_propose(&non_owner, &recipient, &token_id, &100);
         assert_eq!(result, Err(Ok(MultisigError::Unauthorized)));
+    }
+
     // ── Non-owner propose() rejection ─────────────────────────────────────────
 
     #[test]
