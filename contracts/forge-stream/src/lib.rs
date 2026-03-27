@@ -836,6 +836,49 @@ mod tests {
         assert_eq!(result, Err(Ok(StreamError::NothingToWithdraw)));
     }
 
+    /// Test for issue #215: Double withdraw() should return NothingToWithdraw on second call.
+    /// Verifies that withdrawn is updated correctly and the second call without time passing returns error.
+    #[test]
+    fn test_double_withdraw_returns_nothing_to_withdraw() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, ForgeStream);
+        let client = ForgeStreamClient::new(&env, &contract_id);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sac = StellarAssetClient::new(&env, &token_id);
+        sac.mint(&sender, &10_000_000i128);
+        let token = TokenClient::new(&env, &token_id);
+
+        let stream_id = client.create_stream(&sender, &token.address, &recipient, &100, &1000);
+        
+        // Advance time by 100 seconds so tokens accrue
+        env.ledger().with_mut(|l| l.timestamp += 100);
+        
+        // First withdraw should succeed and return 100 * 100 = 10,000
+        let withdrawn_amount = client.withdraw(&stream_id);
+        assert_eq!(withdrawn_amount, 10_000);
+        
+        // Verify stream status after first withdrawal
+        let status_after_first = client.get_stream_status(&stream_id);
+        assert_eq!(status_after_first.withdrawn, 10_000);
+        assert_eq!(status_after_first.withdrawable, 0);
+        
+        // Second withdraw without advancing time should fail with NothingToWithdraw
+        let result = client.try_withdraw(&stream_id);
+        assert_eq!(result, Err(Ok(StreamError::NothingToWithdraw)));
+        
+        // Verify stream status hasn't changed
+        let status_after_second = client.get_stream_status(&stream_id);
+        assert_eq!(status_after_second.withdrawn, 10_000);
+        assert_eq!(status_after_second.withdrawable, 0);
+    }
+
     #[test]
     fn test_stream_status_active() {
         let env = Env::default();
