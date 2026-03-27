@@ -252,7 +252,14 @@ impl ForgeOracle {
             .get(&DataKey::Admin)
             .ok_or(OracleError::NotInitialized)?;
         admin.require_auth();
+        let old_admin = admin.clone();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transferred"),),
+            (old_admin, new_admin),
+        );
+
         Ok(())
     }
 
@@ -468,6 +475,30 @@ mod tests {
         let new_admin = Address::generate(&env);
         client.transfer_admin(&new_admin);
         assert_eq!(client.get_admin().unwrap(), new_admin);
+    }
+
+    #[test]
+    fn test_transfer_admin_emits_event() {
+        use soroban_sdk::testutils::Events;
+        let env = Env::default();
+        env.mock_all_auths();
+        let (old_admin, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+
+        client.transfer_admin(&new_admin);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(_, topics, data)| {
+            topics
+                .get(0)
+                .and_then(|t| Symbol::try_from_val(&env, &t).ok())
+                .map(|s| s == Symbol::new(&env, "admin_transferred"))
+                .unwrap_or(false)
+                && <(Address, Address)>::try_from_val(&env, &data)
+                    .map(|(old, new)| old == old_admin && new == new_admin)
+                    .unwrap_or(false)
+        });
+        assert!(found, "Expected admin_transferred event not found");
     }
 
     #[test]
