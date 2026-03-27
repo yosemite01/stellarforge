@@ -1287,6 +1287,75 @@ mod tests {
     }
 
     #[test]
+    fn test_random_address_cannot_withdraw() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, ForgeStream);
+        let client = ForgeStreamClient::new(&env, &contract_id);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let intruder = Address::generate(&env);
+        let token = make_token(&env, &contract_id, &sender, 100_000);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+
+        // Advance time so tokens have accrued
+        env.ledger().with_mut(|l| l.timestamp = 500);
+
+        // Mock auth as the intruder, not the recipient
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &intruder,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "withdraw",
+                args: (stream_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let result = client.try_withdraw(&stream_id);
+        assert!(
+            result.is_err(),
+            "Expected withdraw by random address to revert"
+        );
+    }
+
+    #[test]
+    fn test_sender_cannot_withdraw() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, ForgeStream);
+        let client = ForgeStreamClient::new(&env, &contract_id);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let token = make_token(&env, &contract_id, &sender, 100_000);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        let stream_id = client.create_stream(&sender, &token, &recipient, &100, &1000);
+
+        // Advance time so tokens have accrued
+        env.ledger().with_mut(|l| l.timestamp = 500);
+
+        // Mock auth as the sender, not the recipient
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &sender,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "withdraw",
+                args: (stream_id,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let result = client.try_withdraw(&stream_id);
+        assert!(
+            result.is_err(),
+            "Expected withdraw by sender to revert with Unauthorized"
+        );
+    }
+
+    #[test]
     fn test_get_stream_count_starts_at_zero() {
         let env = Env::default();
         env.mock_all_auths();
